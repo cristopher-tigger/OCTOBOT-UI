@@ -1,81 +1,56 @@
-async function handleUpload(file) {
-  if (!file) return;
+async function renderDashboard() {
+  updateNav('galería');
+  main.innerHTML = `<div class="container-full" style="padding-top: 6rem;"><div class="video-grid" id="gallery-grid"></div></div>`;
+  const grid = document.getElementById('gallery-grid');
 
-  const confirmUpload = confirm(`¿Quieres enviar "${file.name}" a procesamiento en n8n?`);
-  if (!confirmUpload) return;
+  userJobs = await fetchJobs();
 
-  main.innerHTML = `
-    <div class="upload-container" style="text-align: center;">
-      <div style="width: 100px; height: 100px; border: 4px solid var(--primary); border-top-color: transparent; border-radius: 50%; margin: 0 auto 2rem; animation: rotate-slow 1s linear infinite;"></div>
-      <h2 style="color: #fff;">Subiendo a Supabase...</h2>
-      <p style="color: var(--fg-muted);">Tu archivo se está guardando antes de procesarlo.</p>
-    </div>
-  `;
+  if (userJobs.length === 0) {
+    grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 6rem;"><h2 style="margin-bottom: 2rem; color: #fff;">Sin videos aún</h2><button class="btn-primary" onclick="renderUpload()">Generar Video</button></div>`;
+    return;
+  }
 
-  try {
-    // === PASO 1: SUBIR EL VIDEO A SUPABASE STORAGE ===
-    // Generar un nombre único para evitar colisiones
-    const timestamp = Date.now();
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filePath = `uploads/${timestamp}_${safeName}`;
+  grid.innerHTML = userJobs.map(job => {
+    // Determinar el estado visual del job
+    const hasVideo = job.video_url && job.video_url !== 'null' && job.video_url.trim() !== '';
+    const status = job.status || 'desconocido';
 
-    const { data: uploadData, error: uploadError } = await sb
-      .storage
-      .from('audio-uploads')
-      .upload(filePath, file, {
-        cacheControl: '3600',
-        upsert: false
-      });
+    // Thumbnail: video real si existe, placeholder si no
+    let thumbHtml;
+    if (hasVideo) {
+      thumbHtml = `<video src="${job.video_url}#t=0.1" preload="metadata" onmouseover="this.play()" onmouseout="this.pause()" muted></video>`;
+    } else {
+      // Placeholder según el estado
+      let statusLabel = 'Procesando...';
+      let statusColor = 'var(--primary)';
+      if (status === 'done') { statusLabel = 'Listo'; statusColor = 'var(--primary)'; }
+      else if (status === 'error' || status === 'failed') { statusLabel = 'Error'; statusColor = '#ff5555'; }
+      else if (status === 'rendering') { statusLabel = 'Renderizando...'; statusColor = '#ffaa00'; }
+      else if (status === 'queued') { statusLabel = 'En cola...'; statusColor = '#888'; }
 
-    if (uploadError) {
-      throw new Error('Error subiendo a Supabase: ' + uploadError.message);
+      thumbHtml = `
+        <div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#1a1a1a; gap:0.75rem;">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="${statusColor}" stroke-width="2">
+            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+            <line x1="7" y1="2" x2="7" y2="22"></line>
+            <line x1="17" y1="2" x2="17" y2="22"></line>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+          </svg>
+          <span style="color:${statusColor}; font-size:0.8rem; font-weight:600;">${statusLabel}</span>
+        </div>
+      `;
     }
 
-    // === PASO 2: OBTENER LA URL PÚBLICA ===
-    const { data: urlData } = sb
-      .storage
-      .from('audio-uploads')
-      .getPublicUrl(filePath);
-
-    const publicUrl = urlData.publicUrl;
-
-    if (!publicUrl) {
-      throw new Error('No se pudo obtener la URL pública del archivo');
-    }
-
-    // Actualizar mensaje de progreso
-    main.innerHTML = `
-      <div class="upload-container" style="text-align: center;">
-        <div style="width: 100px; height: 100px; border: 4px solid var(--primary); border-top-color: transparent; border-radius: 50%; margin: 0 auto 2rem; animation: rotate-slow 1s linear infinite;"></div>
-        <h2 style="color: #fff;">Enviando a n8n...</h2>
-        <p style="color: var(--fg-muted);">El motor de automatización está procesando tu video.</p>
+    return `
+      <div class="video-card">
+        <div class="video-thumb">
+          ${thumbHtml}
+        </div>
+        <div class="video-content">
+          <h3>${job.filename || 'Proyecto de Video'}</h3>
+          <button class="nav-link-btn" style="padding-left:0; color: var(--primary);" onclick="renderUpload()">Programar Post</button>
+        </div>
       </div>
     `;
-
-    // === PASO 3: DISPARAR EL WEBHOOK CON LA URL (JSON, no binario) ===
-    const sourceType = file.type.startsWith('video/') ? 'video' : 'audio';
-
-    const response = await fetch(N8N_TRIGGER_WEBHOOK, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        source_url: publicUrl,
-        source_type: sourceType,
-        filename: file.name
-      })
-    });
-
-    if (response.ok) {
-      alert("¡Enviado con éxito! n8n ha comenzado el procesamiento.");
-      renderDashboard();
-    } else {
-      const errText = await response.text();
-      throw new Error("Error en el servidor de n8n: " + errText);
-    }
-  } catch (e) {
-    alert("Error: " + e.message);
-    renderUpload();
-  }
+  }).join('');
 }
