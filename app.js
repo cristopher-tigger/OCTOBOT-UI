@@ -1,466 +1,359 @@
 /* ===================================================================
-   OCTOBOT - Application Logic v0.2
+   OCTOBOT - Application Logic v4.0 (Dark Timeline Edition)
    =================================================================== */
 
 const SUPABASE_URL = 'https://axemawckmfyfggxjxbyq.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4ZW1hd2NrbWZ5ZmdneGp4YnlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDQ2MzQsImV4cCI6MjA5Mjk4MDYzNH0.yAGiZNRYBZ9vlgJ5VebjEM8nnpjfl1fg4uUWpkOrxBs';
-const N8N_WEBHOOK_URL = 'https://n8n.almaquinta.com/webhook-test/pexels-video-test-cris';
+const N8N_CALENDAR_WEBHOOK = 'https://n8n.almaquinta.com/webhook/52778385-f5b1-4770-983f-03617300c3c6';
+const N8N_TRIGGER_WEBHOOK = 'https://n8n.almaquinta.com/webhook-test/pexels-video-test-cris';
 
-const STATUS_LABELS = {
-  queued: 'En cola',
-  transcribing: 'Transcribiendo',
-  segmenting: 'Escenificando',
-  searching: 'Buscando b-roll',
-  rendering: 'Ensamblando',
-  done: 'Completado',
-  failed: 'Error'
-};
 
-const STATUS_PROGRESS = {
-  queued: 5, transcribing: 25, segmenting: 50,
-  searching: 70, rendering: 90, done: 100, failed: 0
-};
 
 let sb = null;
-let currentJob = null;
-let realtimeChannel = null;
 let userJobs = [];
-let currentFile = null;
-let currentSourceType = 'audio';
-let currentFilter = 'all';
+let scheduledPosts = [
+  { id: 101, text: "Cómo crear videos con IA", date: "2026-05-12", time: "10:00", network: "TikTok", status: "scheduled", media: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" }
+];
+
+let calendarViewMode = 'list'; // 'list' or 'grid'
 
 const main = document.getElementById('main');
-const topbarActions = document.getElementById('topbar-actions');
-const viewTitle = document.getElementById('view-title');
-const modal = document.getElementById('modal');
-const modalBody = document.getElementById('modal-body');
+const modal = document.createElement('div');
+modal.className = 'custom-modal';
+document.body.appendChild(modal);
 
-// 1. checkConfig
-function checkConfig() {
-  if (SUPABASE_URL.startsWith('PEGA_AQUI') || SUPABASE_ANON_KEY.startsWith('PEGA_AQUI')) {
-    main.innerHTML = `<section class="hero"><h1 class="hero-title">Configuración <span class="accent">pendiente</span>.</h1></section>`;
-    return false;
-  }
+
+async function init() {
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  return true;
+  renderLanding();
 }
 
-// 2. fetchJobs
-async function fetchJobs() {
-  const { data, error } = await sb
-    .from('jobs')
-    .select('*')
-    .eq('status', 'done')
-    .not('video_url', 'is', null)
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.error('Error fetching jobs:', error);
-    return [];
-  }
-  return data || [];
-}
-
-// 3. updateSidebar
-function updateSidebar(view) {
-  document.querySelectorAll('.nav-btn').forEach(btn => {
-    btn.classList.remove('active');
-    if (btn.innerText.toLowerCase().includes(view.toLowerCase()) || 
-        (view === 'dashboard' && btn.innerText.toLowerCase().includes('mis videos')) ||
-        (view === 'upload' && btn.innerText.toLowerCase().includes('crear video'))) {
-      btn.classList.add('active');
-    }
+function updateNav(view) {
+  document.querySelectorAll('.nav-link-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.innerText.toLowerCase() === view.toLowerCase());
   });
+  window.scrollTo(0, 0);
 }
 
-// 4. renderDashboard
-async function renderDashboard() {
-  userJobs = await fetchJobs();
-  viewTitle.innerText = 'Mi Galería';
-  updateSidebar('dashboard');
-  
-  const filteredJobs = userJobs.filter(job => {
-    if (currentFilter === 'all') return true;
-    const isVideo = job.filename?.match(/\.(mp4|mov|webm)$/i);
-    return currentFilter === 'video' ? isVideo : !isVideo;
-  });
-
-  const totalMinutes = Math.round(userJobs.reduce((acc, job) => {
-    try {
-      const scenes = typeof job.scenes === 'string' ? JSON.parse(job.scenes) : job.scenes;
-      const duration = scenes?.reduce((sAcc, s) => sAcc + (s.duration || 0), 0) || 0;
-      return acc + duration;
-    } catch (e) { return acc; }
-  }, 0) / 60);
-
-  topbarActions.innerHTML = `<button class="btn btn-primary" onclick="renderUpload()">+ Crear nuevo proyecto</button>`;
-
-  if (userJobs.length === 0) {
-    main.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📂</div>
-        <h3>Tu galería está vacía</h3>
-        <p>Comienza subiendo un audio o video para generar contenido increíble.</p>
-        <button class="btn btn-primary" onclick="renderUpload()">Empezar ahora</button>
-      </div>
-    `;
-    return;
-  }
-
+// 1. LANDING VIEW
+function renderLanding() {
+  updateNav('home');
   main.innerHTML = `
-    <div class="dashboard-hero">
-      <div class="dashboard-summary">
-        <div class="summary-item">
-          <span class="summary-val">${userJobs.length}</span>
-          <span class="summary-lab">Proyectos totales</span>
-        </div>
-        <div class="summary-sep"></div>
-        <div class="summary-item">
-          <span class="summary-val">${totalMinutes}m</span>
-          <span class="summary-lab">Tiempo generado</span>
+    <section class="hero">
+      <div class="hero-content">
+        <span class="badge">Octobot Pro</span>
+        <h1 class="hero-title">Contenido que escala contigo.</h1>
+        <p class="hero-sub">La herramienta definitiva para creadores que valoran su tiempo. De audio a video profesional en segundos.</p>
+        <div style="display: flex; gap: 1rem;">
+          <button class="btn-primary" onclick="renderUpload()">Nueva Creación</button>
+          <button class="nav-link-btn" onclick="renderDashboard()">Galería</button>
         </div>
       </div>
-
-      <div class="filter-bar">
-        <button class="filter-btn ${currentFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">Todos</button>
-        <button class="filter-btn ${currentFilter === 'audio' ? 'active' : ''}" onclick="setFilter('audio')">Desde audio</button>
-        <button class="filter-btn ${currentFilter === 'video' ? 'active' : ''}" onclick="setFilter('video')">Con video propio</button>
+      <div class="timeline-wrap" style="transform: rotate(-1deg);">
+         ${scheduledPosts.slice(0, 2).map(post => renderTimelineItem(post)).join('')}
       </div>
-    </div>
+    </section>
+  `;
+}
 
-    <div class="video-grid">
-      ${filteredJobs.map(job => {
-        const scenes = typeof job.scenes === 'string' ? JSON.parse(job.scenes) : job.scenes;
-        const duration = scenes?.reduce((acc, s) => acc + (s.duration || 0), 0) || 0;
-        const isVideo = job.filename?.match(/\.(mp4|mov|webm)$/i);
-        
-        const placeholder = `
-          <div class="video-placeholder">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><path d="M8 21h8M12 17v4M7 8l5 5 5-5"/></svg>
-          </div>
-        `;
-
-        return `
-          <div class="video-card">
-            <div class="video-thumb" onclick="renderVideoModal('${job.id}')">
-              <span class="type-badge ${isVideo ? 'v-vid' : 'v-aud'}">Video</span>
-              ${job.video_url ? `<img src="${job.video_url}#t=0.1" alt="Thumbnail" onerror="this.style.opacity='0'">` : ''}
-              ${placeholder}
-              <div class="video-overlay">
-                <div class="play-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
-              </div>
-              <span class="video-duration">${Math.round(duration)}s</span>
-            </div>
-            <div class="video-info">
-              <input type="text" class="card-title-input" value="${job.filename || ''}" onchange="updateJobInline('${job.id}', this.value)" placeholder="Sin título">
-              <div class="video-meta">
-                <span>${timeAgo(job.created_at)}</span>
-                <span class="dot">·</span>
-                <span>HD</span>
-              </div>
-              <div class="video-actions">
-                <button class="action-btn" onclick="renderVideoModal('${job.id}')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  Ver
-                </button>
-                <a href="${job.video_url}" download="${job.filename || 'video'}.mp4" class="action-btn">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                </a>
-                <button class="action-btn delete" onclick="deleteJob('${job.id}')">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('')}
+function renderTimelineItem(post) {
+  return `
+    <div class="timeline-item" id="post-${post.id}">
+      <div class="item-thumb">
+        <video src="${post.media}" muted onmouseover="this.play()" onmouseout="this.pause()"></video>
+      </div>
+      <div class="item-info">
+        <div class="item-title">${post.text}</div>
+        <div class="item-meta">
+          <span class="status-pill status-${post.status}">${post.status === 'scheduled' ? 'Programado' : 'Borrador'}</span>
+          ${post.network.toUpperCase()} · ${post.date} · ${post.time}
+        </div>
+      </div>
+      <div class="item-actions">
+        <button class="btn-icon" onclick="editPost(${post.id})">
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button class="btn-icon delete" onclick="deletePost(${post.id})">
+           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
     </div>
   `;
 }
 
-function setFilter(filter) {
-  currentFilter = filter;
-  renderDashboard();
+// 2. DASHBOARD VIEW (Gallery)
+async function fetchJobs() {
+  // Primero intentamos Supabase como base de datos de registro
+  const { data } = await sb.from('jobs').select('*').order('created_at', { ascending: false });
+  return data || [];
 }
 
-// 5. renderUpload
-function renderUpload(error = null) {
-  viewTitle.innerText = 'Nuevo Video';
-  updateSidebar('upload');
-  topbarActions.innerHTML = '';
-  currentFile = null;
+async function renderDashboard() {
+  updateNav('galería');
+  main.innerHTML = `<div class="container-full" style="padding-top: 6rem;"><div class="video-grid" id="gallery-grid"></div></div>`;
+  const grid = document.getElementById('gallery-grid');
   
-  main.innerHTML = `
-    <section class="hero">
-      <h1 class="hero-title">Tu voz, <span class="accent">video</span> en minutos.</h1>
-      <p class="hero-sub">Sube un audio narrado o un video propio y Octobot se encarga de lo demás.</p>
-    </section>
+  userJobs = await fetchJobs();
 
-    <div id="dropzone" class="dropzone">
-      <input type="file" id="file-input" accept="audio/*,video/*" style="display:none">
-      <div class="dropzone-icon-wrap">
-        <svg viewBox="0 0 24 24"><path d="M12 4v12m0-12l-4 4m4-4l4 4"/><circle cx="12" cy="12" r="10" style="opacity:0.2"/></svg>
+
+  if (userJobs.length === 0) {
+    grid.innerHTML = `<div style="grid-column: 1/-1; text-align: center; padding: 6rem;"><h2 style="margin-bottom: 2rem; color: #fff;">Sin videos aún</h2><button class="btn-primary" onclick="renderUpload()">Generar Video</button></div>`;
+    return;
+  }
+
+  grid.innerHTML = userJobs.map(job => `
+    <div class="video-card">
+      <div class="video-thumb">
+        <video src="${job.video_url}#t=0.1" preload="metadata" onmouseover="this.play()" onmouseout="this.pause()" muted></video>
       </div>
-      <h2 class="dropzone-title">Suelta tu archivo aquí</h2>
-      <p class="dropzone-hint">Audio (MP3, WAV, M4A) o Video (MP4, MOV, WEBM) hasta 100MB</p>
-      ${error ? `<div class="error-detail" style="margin-top:1.5rem; color:var(--error); font-family:var(--mono); font-size:0.8rem;">${error}</div>` : ''}
+      <div class="video-content">
+        <h3>${job.filename || 'Proyecto de Video'}</h3>
+        <button class="nav-link-btn" style="padding-left:0; color: var(--primary);" onclick="renderUpload()">Programar Post</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// 3. TIMELINE / CALENDAR MODULE
+const CalendarModule = {
+  posts: [],
+  async render() {
+    updateNav('calendario');
+    main.innerHTML = `
+      <div class="container-full" style="padding-top: 6rem;">
+        <div style="margin-bottom: 4rem; display: flex; justify-content: space-between; align-items: flex-end;">
+          <div>
+            <h1 style="font-size: 3rem; font-weight: 800; letter-spacing: -0.04em; color: #fff;">Calendario</h1>
+            <p style="color: var(--fg-muted);">Gestiona tus publicaciones conectadas a la base de datos.</p>
+          </div>
+          <div style="display: flex; gap: 1rem;">
+             <div class="nav" style="border: 1px solid var(--line); border-radius: 8px; padding: 2px;">
+                <button class="nav-link-btn ${calendarViewMode === 'list' ? 'active' : ''}" onclick="CalendarModule.setView('list')">Lista</button>
+                <button class="nav-link-btn ${calendarViewMode === 'grid' ? 'active' : ''}" onclick="CalendarModule.setView('grid')">Cuadrícula</button>
+             </div>
+             <button class="btn-primary" onclick="renderUpload()">Nueva Publicación</button>
+          </div>
+        </div>
+        <div id="calendar-content"></div>
+      </div>
+    `;
+    await this.fetchPosts();
+  },
+
+  async fetchPosts() {
+    try {
+      const response = await fetch(N8N_CALENDAR_WEBHOOK);
+      const data = await response.json();
+      
+      if (Array.isArray(data)) {
+        this.posts = data.map(p => ({
+          id: p.id,
+          text: p.text || 'Sin título',
+          date: p.publicationDate?.dateTime?.split('T')[0] || '2026-05-01',
+          time: p.publicationDate?.dateTime?.split('T')[1]?.substring(0, 5) || '00:00',
+          network: p.providers?.[0]?.network || 'tiktok',
+          status: p.draft ? 'draft' : 'scheduled',
+          media: p.media?.[0] || 'https://placehold.co/400x600?text=Octobot+Media'
+        }));
+      } else {
+        throw new Error("Invalid data format from n8n");
+      }
+    } catch (e) {
+      console.warn("N8N fetch failed, falling back to Supabase/Mock:", e);
+      // Fallback a Supabase
+      const { data: sbData } = await sb.from('posts').select('*').order('publicationDate->dateTime', { ascending: true });
+      if (sbData) {
+        this.posts = sbData.map(p => ({
+          id: p.id,
+          text: p.text || 'Sin título',
+          date: p.publicationDate?.dateTime?.split('T')[0] || '2026-05-01',
+          time: p.publicationDate?.dateTime?.split('T')[1]?.substring(0, 5) || '00:00',
+          network: p.providers?.[0]?.network || 'tiktok',
+          status: p.draft ? 'draft' : 'scheduled',
+          media: p.media?.[0] || 'https://placehold.co/400x600?text=Octobot+Media'
+        }));
+      } else {
+        this.posts = scheduledPosts;
+      }
+    }
+    this.renderContent();
+  },
+
+
+  setView(mode) {
+    calendarViewMode = mode;
+    this.render();
+  },
+
+  renderContent() {
+    const container = document.getElementById('calendar-content');
+    if (calendarViewMode === 'list') {
+      container.innerHTML = `<div class="timeline-wrap">${this.posts.map(p => renderTimelineItem(p)).join('')}</div>`;
+    } else {
+      container.innerHTML = `
+        <div class="calendar-view">
+          <div class="calendar-header">
+            ${['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => `<div class="cal-day-label">${d}</div>`).join('')}
+          </div>
+          <div class="calendar-grid">
+            ${this.renderGridDays()}
+          </div>
+        </div>
+      `;
+    }
+  },
+
+  renderGridDays() {
+    let html = '';
+    for (let i = 1; i <= 31; i++) {
+      const dayPosts = this.posts.filter(p => parseInt(p.date.split('-')[2]) === i);
+      html += `
+        <div class="cal-day">
+          <span class="cal-num">${i}</span>
+          ${dayPosts.map(p => `
+            <div class="cal-post" onclick="editPost(${p.id})" style="border-color: ${p.status === 'scheduled' ? 'var(--primary)' : 'var(--accent)'}">
+              <span class="post-title">${p.text}</span>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+    return html;
+  }
+};
+
+
+// 4. UPLOAD VIEW
+function renderUpload() {
+  updateNav('home'); // or highlight appropriate
+  main.innerHTML = `
+    <div class="upload-container">
+      <div style="text-align: center; margin-bottom: 4rem;">
+        <h1 style="font-size: 3.5rem; font-weight: 800; letter-spacing: -0.04em; color: #fff; margin-bottom: 1rem;">Crear</h1>
+        <p style="color: var(--fg-muted);">El primer paso para tu próximo éxito viral.</p>
+      </div>
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" style="display:none" accept="audio/*,video/*">
+        <div style="width: 80px; height: 80px; background: rgba(3, 194, 194, 0.1); color: var(--primary); border-radius: 50%; margin: 0 auto 2rem; display: flex; align-items: center; justify-content: center;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4m4-10l4-4 4 4m-4-4v12"/></svg>
+        </div>
+        <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; color: #fff;">Sube tu archivo</h2>
+        <p style="color: var(--fg-muted);">Audio o Video (máx. 50MB)</p>
+      </div>
     </div>
   `;
 
   const dropzone = document.getElementById('dropzone');
   const fileInput = document.getElementById('file-input');
   dropzone.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+  fileInput.addEventListener('change', (e) => handleUpload(e.target.files[0]));
 }
 
-// 6. renderPreview
-async function renderPreview(file, isVertical = false) {
-  viewTitle.innerText = 'Vista previa';
-  const url = URL.createObjectURL(file);
-  const isVideo = file.type.startsWith('video/');
-
-  main.innerHTML = `
-    <div class="preview-container">
-      <div class="preview-media">
-        ${isVideo ? `<video src="${url}" controls muted></video>` : 
-          `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`}
-      </div>
-      
-      <div class="preview-info">
-        <h2 class="preview-filename">${file.name}</h2>
-        <span class="preview-meta">${(file.size / (1024 * 1024)).toFixed(1)} MB · ${isVideo ? 'Video source' : 'Audio only'}</span>
-      </div>
-
-      ${isVertical ? `
-        <div class="warning-box">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-          <span>Video vertical detectado. Se recomienda horizontal (16:9) para mejores resultados.</span>
+// 5. INTERACTIVITY & MODAL
+async function editPost(id) {
+  const post = CalendarModule.posts.find(p => p.id === id);
+  modal.innerHTML = `
+    <div class="modal-overlay" onclick="closeModal()">
+      <div class="modal-card" onclick="event.stopPropagation()">
+        <h2 style="margin-bottom: 1.5rem; color: #fff;">Editar Publicación</h2>
+        <div style="margin-bottom: 1.5rem;">
+          <label style="display:block; font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 0.5rem;">Texto del Post</label>
+          <textarea id="edit-text" style="width:100%; background: #1a1a1a; border: 1px solid var(--line); border-radius: 8px; color: #fff; padding: 1rem; font-family: var(--font); height: 100px;">${post.text}</textarea>
         </div>
-      ` : ''}
-
-      <div class="modal-actions" style="justify-content: center;">
-        <button class="btn btn-outline" onclick="renderUpload()">Cancelar</button>
-        <button class="btn btn-primary" onclick="startUpload()">Generar video</button>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
+          <div>
+            <label style="display:block; font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 0.5rem;">Fecha</label>
+            <input type="date" id="edit-date" value="${post.date}" style="width:100%; background: #1a1a1a; border: 1px solid var(--line); border-radius: 8px; color: #fff; padding: 0.75rem;">
+          </div>
+          <div>
+            <label style="display:block; font-size: 0.8rem; color: var(--fg-muted); margin-bottom: 0.5rem;">Hora</label>
+            <input type="time" id="edit-time" value="${post.time}" style="width:100%; background: #1a1a1a; border: 1px solid var(--line); border-radius: 8px; color: #fff; padding: 0.75rem;">
+          </div>
+        </div>
+        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+          <button class="nav-link-btn" onclick="closeModal()">Cancelar</button>
+          <button class="btn-primary" onclick="savePost(${id})">Guardar Cambios</button>
+        </div>
       </div>
     </div>
   `;
-}
-
-// 7. handleFile
-async function handleFile(file) {
-  if (!file) return;
-  const isVideo = file.type.startsWith('video/');
-  const isAudio = file.type.startsWith('audio/');
-  
-  if (!isVideo && !isAudio) return renderUpload('Formato no soportado.');
-  if (file.size > 100 * 1024 * 1024) return renderUpload('El archivo supera los 100MB.');
-
-  currentFile = file;
-  currentSourceType = isVideo ? 'video' : 'audio';
-
-  if (isVideo) {
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.onloadedmetadata = () => {
-      window.URL.revokeObjectURL(video.src);
-      const isVertical = video.videoHeight > video.videoWidth;
-      renderPreview(file, isVertical);
-    };
-    video.src = URL.createObjectURL(file);
-  } else {
-    renderPreview(file);
-  }
-}
-
-// 8. startUpload
-async function startUpload() {
-  if (!currentFile) return;
-  const file = currentFile;
-  
-  try {
-    renderProcessing({ status: 'queued' });
-    const ext = file.name.split('.').pop();
-    const filename = `${Date.now()}-${crypto.randomUUID()}.${ext}`;
-    
-    const { error: upErr } = await sb.storage.from('audio-uploads').upload(filename, file);
-    if (upErr) throw upErr;
-
-    const { data: { publicUrl } } = sb.storage.from('audio-uploads').getPublicUrl(filename);
-    
-    const res = await fetch(N8N_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        source_url: publicUrl, 
-        filename: file.name,
-        source_type: currentSourceType
-      })
-    });
-    
-    const data = await res.json();
-    if (!data.job_id) throw new Error('No job id received');
-
-    currentJob = { id: data.job_id, status: 'queued' };
-    subscribeToJob(currentJob.id);
-  } catch (e) {
-    console.error(e);
-    renderUpload(e.message);
-  }
-}
-
-// 9. renderProcessing
-function renderProcessing(job) {
-  viewTitle.innerText = 'Procesando';
-  topbarActions.innerHTML = '';
-  const progress = STATUS_PROGRESS[job.status] || 0;
-  const stepsHTML = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'done' && k !== 'failed').map(([key, label], idx) => {
-    const isActive = job.status === key;
-    const isDone = STATUS_PROGRESS[job.status] > STATUS_PROGRESS[key];
-    const cls = isActive ? 'is-active' : (isDone ? 'is-done' : '');
-    return `<div class="step ${cls}"><span class="step-num">${idx + 1}</span><span class="step-label">${label}</span></div>`;
-  }).join('');
-
-  main.innerHTML = `
-    <div class="processing-card">
-      <div class="processing-head">
-        <div class="processing-percent">${String(progress).padStart(2, '0')}%</div>
-        <div class="processing-status">${STATUS_LABELS[job.status]}</div>
-      </div>
-      <div class="processing-track"><div class="processing-fill" style="width:${progress}%"></div></div>
-      <div class="processing-steps">${stepsHTML}</div>
-    </div>
-  `;
-}
-
-// 10. renderVideoModal
-function renderVideoModal(jobId) {
-  const job = userJobs.find(j => j.id === jobId);
-  if (!job) return;
-
-  const scenes = typeof job.scenes === 'string' ? JSON.parse(job.scenes) : job.scenes;
-  const duration = Math.round(scenes?.reduce((acc, s) => acc + (s.duration || 0), 0) || 0);
-
-  modalBody.innerHTML = `
-    <div class="video-container">
-      <video src="${job.video_url}" controls autoplay loop></video>
-    </div>
-    <div class="modal-footer">
-      <div class="modal-info">
-        <input type="text" id="edit-name-${job.id}" class="modal-input-name" value="${job.filename || ''}" placeholder="Nombre del video">
-        <div class="modal-meta">${duration}s · ${timeAgo(job.created_at)}</div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn btn-primary" onclick="updateJob('${job.id}')" style="flex:1">Guardar cambios</button>
-        <a href="${job.video_url}" download="${job.filename || 'video'}.mp4" class="btn btn-outline">Descargar</a>
-        <button class="btn btn-outline btn-danger" onclick="deleteJob('${job.id}')">Eliminar</button>
-      </div>
-    </div>
-  `;
-  modal.classList.add('is-open');
-}
-
-async function updateJob(jobId) {
-  const newName = document.getElementById(`edit-name-${jobId}`).value;
-  if (!newName) return alert('El nombre no puede estar vacío');
-
-  try {
-    const { error } = await sb.from('jobs').update({ filename: newName }).eq('id', jobId);
-    if (error) throw error;
-    closeModal();
-    renderDashboard();
-  } catch (e) {
-    alert('Error al actualizar: ' + e.message);
-  }
-}
-
-async function deleteJob(jobId) {
-  if (!confirm('¿Estás seguro de eliminar este video? Esta acción no se puede deshacer.')) return;
-
-  try {
-    const { error } = await sb.from('jobs').delete().eq('id', jobId);
-    if (error) throw error;
-    closeModal();
-    renderDashboard();
-  } catch (e) {
-    alert('Error al eliminar: ' + e.message);
-  }
+  modal.style.display = 'block';
 }
 
 function closeModal() {
-  modal.classList.remove('is-open');
-  modalBody.innerHTML = '';
+  modal.style.display = 'none';
 }
 
-// 11. subscribeToJob
-function subscribeToJob(jobId) {
-  if (realtimeChannel) sb.removeChannel(realtimeChannel);
-  realtimeChannel = sb.channel(`job-${jobId}`)
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jobs', filter: `id=eq.${jobId}` }, (payload) => {
-      currentJob = payload.new;
-      if (currentJob.status === 'done') {
-        init();
-      } else if (currentJob.status === 'failed') {
-        renderUpload(currentJob.error_message);
-      } else {
-        renderProcessing(currentJob);
-      }
-    })
-    .subscribe();
-}
+async function savePost(id) {
+  const newText = document.getElementById('edit-text').value;
+  const newDate = document.getElementById('edit-date').value;
+  const newTime = document.getElementById('edit-time').value;
 
-// 12. Utilities
-function timeAgo(date) {
-  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-  let interval = seconds / 31536000;
-  if (interval > 1) return `Hace ${Math.floor(interval)} años`;
-  interval = seconds / 2592000;
-  if (interval > 1) return `Hace ${Math.floor(interval)} meses`;
-  interval = seconds / 86400;
-  if (interval > 1) return `Hace ${Math.floor(interval)} días`;
-  interval = seconds / 3600;
-  if (interval > 1) return `Hace ${Math.floor(interval)} horas`;
-  interval = seconds / 60;
-  if (interval > 1) return `Hace ${Math.floor(interval)} min`;
-  return 'Hace unos segundos';
-}
+  // Actualización real en Supabase
+  const { error } = await sb.from('posts').update({
+    text: newText,
+    publicationDate: { dateTime: `${newDate}T${newTime}:00` }
+  }).eq('id', id);
 
-function copyLink(url) {
-  navigator.clipboard.writeText(url);
-  alert('Enlace copiado al portapapeles');
-}
-
-function goHome() {
-  if (userJobs.length > 0) renderDashboard();
-  else renderUpload();
-}
-
-// 13. Init
-async function init() {
-  if (!checkConfig()) return;
-  userJobs = await fetchJobs();
-  if (userJobs.length > 0) {
-    renderDashboard();
+  if (error) {
+    alert("Error al actualizar: " + error.message);
   } else {
+    closeModal();
+    CalendarModule.render();
+  }
+}
+
+async function deletePost(id) {
+  if (confirm("¿Estás seguro de que quieres eliminar esta publicación de la base de datos?")) {
+    const { error } = await sb.from('posts').delete().eq('id', id);
+    if (error) alert("Error: " + error.message);
+    else CalendarModule.render();
+  }
+}
+
+
+async function handleUpload(file) {
+  if (!file) return;
+  
+  const confirmUpload = confirm(`¿Quieres enviar "${file.name}" a procesamiento en n8n?`);
+  if (!confirmUpload) return;
+
+  main.innerHTML = `
+    <div class="upload-container" style="text-align: center;">
+      <div style="width: 100px; height: 100px; border: 4px solid var(--primary); border-top-color: transparent; border-radius: 50%; margin: 0 auto 2rem; animation: rotate-slow 1s linear infinite;"></div>
+      <h2 style="color: #fff;">Enviando a n8n...</h2>
+      <p style="color: var(--fg-muted);">Tu archivo está siendo transferido al motor de automatización.</p>
+    </div>
+  `;
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('source_type', file.type.startsWith('video/') ? 'video' : 'audio');
+
+    const response = await fetch(N8N_TRIGGER_WEBHOOK, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (response.ok) {
+      alert("¡Enviado con éxito! n8n ha comenzado el procesamiento.");
+      renderDashboard();
+    } else {
+      throw new Error("Error en el servidor de n8n");
+    }
+  } catch (e) {
+    alert("Error al conectar con n8n: " + e.message);
     renderUpload();
   }
 }
 
-document.addEventListener('DOMContentLoaded', init);
-async function updateJobInline(jobId, newName) {
-  if (!newName) return;
-  try {
-    const { error } = await sb.from('jobs').update({ filename: newName }).eq('id', jobId);
-    if (error) throw error;
-  } catch (e) {
-    alert('Error al actualizar: ' + e.message);
-  }
-}
 
-window.goHome = goHome;
+window.renderLanding = renderLanding;
+window.renderDashboard = renderDashboard;
 window.renderUpload = renderUpload;
-window.renderVideoModal = renderVideoModal;
-window.updateJob = updateJob;
-window.updateJobInline = updateJobInline;
-window.deleteJob = deleteJob;
-window.closeModal = closeModal;
-window.downloadVideo = (url) => window.open(url, '_blank');
+window.CalendarModule = CalendarModule;
+window.editPost = editPost;
+window.deletePost = deletePost;
+
+document.addEventListener('DOMContentLoaded', init);
