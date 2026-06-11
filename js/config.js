@@ -7,8 +7,8 @@
 window.OCTOBOT_CONFIG = {
 
   /* ---- SUPABASE (Project Settings → API) ---- */
-  SUPABASE_URL:      'https://TU-PROYECTO.supabase.co',
-  SUPABASE_ANON_KEY: 'TU_ANON_KEY',
+  SUPABASE_URL:      'https://axemawckmfyfggxjxbyq.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF4ZW1hd2NrbWZ5ZmdneGp4YnlxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0MDQ2MzQsImV4cCI6MjA5Mjk4MDYzNH0.yAGiZNRYBZ9vlgJ5VebjEM8nnpjfl1fg4uUWpkOrxBs',
 
   /* Bucket de Storage (debe existir y ser público).
      En tu proyecto se llama 'audio-uploads'. */
@@ -17,10 +17,10 @@ window.OCTOBOT_CONFIG = {
   /* ---- n8n ---- */
   /* URL base de tus webhooks (sin slash final).
      Usa la URL de PRODUCCIÓN del flujo activo. */
-  N8N_BASE: 'https://TU-N8N.com/webhook',
+  N8N_BASE: 'https://n8n.almaquinta.com/webhook',
 
   /* Webhook del pipeline de video (debe terminar en /pexels-video-test-cris) */
-  PIPELINE_WEBHOOK: 'https://TU-N8N.com/webhook/pexels-video-test-cris',
+  PIPELINE_WEBHOOK: 'https://n8n.almaquinta.com/webhook-test/pexels-video-test-cris',
 
   /* ---- Otros ---- */
   TIMEZONE: 'America/Lima',
